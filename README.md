@@ -12,7 +12,7 @@ git clone git@github.com:mawil21/police-records.git
 pip3 install docling
 ```
 
-## Add dataset path and structured extraction path in src/structured_extraction.py
+## Add dataset path and structured extraction path in `src/structured_extraction.py`
 ```python
 input_pdf_dir =  # Input Directory containg the dataset 
 output_pdf_dir =  # Output Directory to save structured extraction output
