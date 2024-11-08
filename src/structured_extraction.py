@@ -1,7 +1,5 @@
 from docling.document_converter import DocumentConverter
 import os
-import fitz
-from PIL import Image
 
 
 # Function to extract the structure data from a document through docling 
