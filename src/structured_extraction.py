@@ -5,8 +5,8 @@ from PIL import Image
 import io
 import cv2
 import numpy as np 
-from docling_pipeline.docling_structured_extraction import extract_tables, extract_key_value_pairs
-
+from docling_pipeline.docling_structured_extraction import extract_tables
+from document_intelligence.document_intelligence_extraction import extract_kv_pairs
 # Function to process and save a single PDF
 def process_pdf(pdf_file, input_dir, output_dir):
     # Compute the relative path
@@ -18,7 +18,7 @@ def process_pdf(pdf_file, input_dir, output_dir):
     #Process the PDF with docling
     tables = extract_tables(pdf_file) # json output 
     print(f"Extracted {len(tables)} tables from {relative_path}")
-    key_value_pairs = extract_key_value_pairs(pdf_file) # json output 
+    key_value_pairs = extract_kv_pairs(pdf_file) # json output 
     print(f"Extracted {len(key_value_pairs)} key-value pairs from {relative_path}")
 
 
