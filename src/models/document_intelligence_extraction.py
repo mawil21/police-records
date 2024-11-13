@@ -97,7 +97,7 @@ class Azure_Document_Intelligence_Extraction:
                     }
                     print(
                         f"Value '{value_content}' found within "
-                        f"'{_format_bounding_region(kv_pair.value.bounding_regions)}' bounding regions on page {value_page_number}\n"
+                        f"'{self._format_bounding_region(kv_pair.value.bounding_regions)}' bounding regions on page {value_page_number}\n"
                     )
 
                 # Append extracted key-value pair to the list, including page numbers
