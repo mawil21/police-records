@@ -13,6 +13,15 @@ docling_extractor = Docling_Structured_Extraction()
 azure_extractor = Azure_Document_Intelligence_Extraction()
 
 
+
+
+# Function to extract structured data from a PDF
+def structued_extraction(pdf_file):
+    tables = docling_extractor.extract_tables(pdf_file) # json output
+    key_value_pairs = azure_extractor.extract_kv_pairs(pdf_file) # json output
+    lines = azure_extractor.extract_lines(pdf_file) # json output
+    return tables, key_value_pairs, lines
+
 # Function to process and save a single PDF
 def process_pdf(pdf_file, input_dir, output_dir):
     # Compute the relative path
@@ -22,10 +31,8 @@ def process_pdf(pdf_file, input_dir, output_dir):
     os.makedirs(os.path.dirname(extraction_dir_name), exist_ok=True)
 
     #Process the PDF with docling
-    tables = docling_extractor.extract_tables(pdf_file) # json output 
-    print(f"Extracted {len(tables)} tables from {relative_path}")
-    key_value_pairs = azure_extractor.extract_kv_pairs(pdf_file) # json output 
-    print(f"Extracted {len(key_value_pairs)} key-value pairs from {relative_path}")
+    tables, kv_pairs, lines = structued_extraction(pdf_file)
+
 
 
 # Function to process all PDFs in a given directory
