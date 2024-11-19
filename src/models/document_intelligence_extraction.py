@@ -29,14 +29,60 @@ class Azure_Document_Intelligence_Extraction:
         if not bounding_regions:
             return None
         polygon = bounding_regions[0].polygon
-        x_coords = [point.x for point in polygon]
-        y_coords = [point.y for point in polygon]
+        x_coords = [point.x * 72 for point in polygon]
+        y_coords = [point.y * 72 for point in polygon]
         return {
             "l": min(x_coords),
             "t": min(y_coords),
             "r": max(x_coords),
             "b": max(y_coords)
         }
+
+    def extract_lines(self, result):
+        """
+        Extract non-tabular and non-key-value structures from the document.
+        Lines overlapping with table or key-value pair bounding boxes are excluded.
+
+        :param result: The Azure Document Intelligence result object.
+        :param table_bboxes: Dictionary of bounding boxes for tables by page.
+        :param kv_bboxes: Dictionary of bounding boxes for key-value pairs by page.
+        :return: List of non-tabular structures.
+        """
+        lines = []
+
+        if result.pages:
+            for page in result.pages:
+                page_number = page.page_number
+                page_content = []
+
+                for line in page.lines:
+                    # Get the bounding box for the line using its polygon
+                    if line.polygon and len(line.polygon) >= 4:
+                        x_coords = [point.x * 72 for point in line.polygon]
+                        y_coords = [point.y * 72 for point in line.polygon]
+                        line_bbox = {
+                            "l": min(x_coords),
+                            "t": min(y_coords),
+                            "r": max(x_coords),
+                            "b": max(y_coords)
+                        }
+                    else:
+                        continue  # Skip if no valid polygon
+
+                    # Add non-tabular line to content
+                    page_content.append({
+                        "text": line.content,
+                        "bbox": line_bbox
+                    })
+
+                # Add extracted content for this page
+                if page_content:
+                    lines.append({
+                        "page_no": page_number,
+                        "content": page_content
+                    })
+
+        return lines
 
     # Function to extract tables with customized bounding box format
     def extract_tables(self, result):
@@ -72,8 +118,8 @@ class Azure_Document_Intelligence_Extraction:
                 if kv_pair.key and kv_pair.key.bounding_regions:
                     polygon = kv_pair.key.bounding_regions[0].polygon
                     key_page_number = kv_pair.key.bounding_regions[0].page_number  # Extract page number from bounding regions
-                    x_coords = [point.x for point in polygon]
-                    y_coords = [point.y for point in polygon]
+                    x_coords = [point.x * 72 for point in polygon]
+                    y_coords = [point.y * 72 for point in polygon]
                     key_bounding_box = {
                         "left": min(x_coords),
                         "top": min(y_coords),
@@ -87,8 +133,8 @@ class Azure_Document_Intelligence_Extraction:
                 if kv_pair.value and kv_pair.value.bounding_regions:
                     polygon = kv_pair.value.bounding_regions[0].polygon
                     value_page_number = kv_pair.value.bounding_regions[0].page_number  # Extract page number from bounding regions
-                    x_coords = [point.x for point in polygon]
-                    y_coords = [point.y for point in polygon]
+                    x_coords = [point.x * 72 for point in polygon]
+                    y_coords = [point.y * 72 for point in polygon]
                     value_bounding_box = {
                         "left": min(x_coords),
                         "top": min(y_coords),
@@ -204,9 +250,13 @@ class Azure_Document_Intelligence_Extraction:
             result = poller.result()
         
         # Process the PDF with docling and save the JSON output
-        kv_pairs = self.extract_tables(result)
+        # tables = self.extract_tables(result)
+        # kv_pairs = self.extract_kv_pairs(result)
+
+        non_structured_data = self.extract_lines(result)
+
         with open(json_output_path, 'w') as file:
-            json.dump(kv_pairs, file, indent=4)
+            json.dump(non_structured_data, file, indent=4)
 
 
 
@@ -224,7 +274,7 @@ class Azure_Document_Intelligence_Extraction:
 # GOAL is to extract the table and key-value pairs from the PDFs
 if __name__ == "__main__":
     input_pdf_dir = "../../structured_extraction_baselines/azure_document_intelligence/tst/saved_pdfs"  # Directory containing the PDFs to process
-    output_pdf_dir = "../../tst/document_intelligence_tables" # Directory to save the extraction results of PDF documents
+    output_pdf_dir = "../../tst/document_intelligence_lines" # Directory to save the extraction results of PDF documents
     
     # Initialize the Azure client
     azure_endpoint = "" # add your endpoint
