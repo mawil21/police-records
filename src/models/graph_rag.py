@@ -32,6 +32,10 @@ from llama_index.core.query_engine import CustomQueryEngine
 from llama_index.core.llms import LLM
 from llama_index.core.node_parser import SentenceSplitter
 from llama_index.core import PropertyGraphIndex
+from llama_index.core.callbacks import TokenCountingHandler, CallbackManager
+import tiktoken
+from llama_index.core import Settings
+
 nest_asyncio.apply()
 
 entity_pattern = r'\("entity"\$\$\$\$"(.+?)"\$\$\$\$"(.+?)"\$\$\$\$"(.+?)"\)'
@@ -332,7 +336,21 @@ class GraphRAGQueryEngine(CustomQueryEngine):
 
 def graph_rag_api(document, question, model):
     os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY") # replace with your api key
+
+    # Initialize the TokenCountingHandler
+    token_counter = TokenCountingHandler(
+        tokenizer=tiktoken.encoding_for_model(model).encode
+    )
+    Settings.llm = OpenAI(model=model, temperature=0.0)
+    Settings.callback_manager = CallbackManager([token_counter])
+
     llm = OpenAI(model=model)
+
+    # service_context = ServiceContext.from_defaults(
+    #     llm=llm,
+    #     callback_manager=callback_manager,
+    #     embed_model = "local"
+    # )
 
     # Create Document instance with the loaded text content
     documents = [Document(text=document)]
@@ -369,6 +387,26 @@ def graph_rag_api(document, question, model):
 
     # Query the engine
     response = query_engine.query(question)
+    print(response.print_response_stream)
+   
+
+    # Print token usage statistics
+    print("Token Usage Statistics:")
+    print(
+        "Embedding Tokens: ",
+        token_counter.total_embedding_token_count,
+        "\n",
+        "LLM Prompt Tokens: ",
+        token_counter.prompt_llm_token_count,
+        "\n",
+        "LLM Completion Tokens: ",
+        token_counter.completion_llm_token_count,
+        "\n",
+        "Total LLM Token Count: ",
+        token_counter.total_llm_token_count,
+        "\n",
+        )
+
     return response.response
 
 
@@ -382,13 +420,7 @@ if __name__ == "__main__":
     # Create Document instance with the loaded text content
     document = text_content
     # Question to ask the model
-    question = "What is the model talking about?"
+    question = "What is the date of occurrence and time of occurrence?"
     model = "gpt-4o"
-    response = graph_rag_api(document, question, model)
-    print(response)
-
-
-    # Question to ask the model
-    question = "Who is the officer involved?"
     response = graph_rag_api(document, question, model)
     print(response)
