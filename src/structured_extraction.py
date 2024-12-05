@@ -98,7 +98,6 @@ def refactor_tables_json(json_data):
 
             # Pair every x in point.x with every y in point.y
             coordinates = list(zip(point_x, point_y))
-
             refactored_data[page_no].append({
                 'type': 'table',
                 'bbox': coordinates,  # Assign the paired coordinates to bbox
@@ -192,23 +191,32 @@ def refactor_lines_json(json_data, table_pages, kv_pages):
     return refactored_data
 
 
-def refactor_and_persist_json_data(table_json_path, kv_json_path, lines_json_path):
+def refactor_and_persist_json_data(table_json_path, kv_json_path, lines_json_path, output_extraction_dir):
+    # Extract the base filename (without extension) for directory naming
+    base_filename = os.path.splitext(os.path.basename(table_json_path))[0]
+    
+    # Create a subdirectory in the output directory
+    output_subdir = os.path.join(output_extraction_dir, base_filename)
+    os.makedirs(output_subdir, exist_ok=True)
+
+    # Process the data
     with open(table_json_path, 'r') as file:
         tables = refactor_tables_json(json.load(file).get('tables', []))
     with open(kv_json_path, 'r') as file:
         kv_pairs = refactor_key_value_pairs(json.load(file))
     with open(lines_json_path, 'r') as file:
-        lines = refactor_lines_json(json.load(file), tables, kv_pairs)   
+        lines = refactor_lines_json(json.load(file), tables, kv_pairs)
 
-    # Dump the refactored data to the output directory
-    with open(os.path.join(output_extraction_dir, "cleaned_table.json"), 'w') as file:
+    # Dump the refactored data to the subdirectory
+    with open(os.path.join(output_subdir, "cleaned_table.json"), 'w') as file:
         json.dump(tables, file, indent=4)
-    with open(os.path.join(output_extraction_dir, "cleaned_kv_pairs.json"), 'w') as file:
+    with open(os.path.join(output_subdir, "cleaned_kv_pairs.json"), 'w') as file:
         json.dump(kv_pairs, file, indent=4)
-    with open(os.path.join(output_extraction_dir, "cleaned_lines.json"), 'w') as file:
+    with open(os.path.join(output_subdir, "cleaned_lines.json"), 'w') as file:
         json.dump(lines, file, indent=4)
 
     return tables, kv_pairs, lines
+
 
 
 
@@ -219,94 +227,76 @@ def refactor_and_persist_json_data(table_json_path, kv_json_path, lines_json_pat
 
 
 def format_extraction(table_json_path, kv_json_path, lines_json_path, output_extraction_dir):
-    
-    tables, kv_pairs, lines = refactor_and_persist_json_data(table_json_path, kv_json_path, lines_json_path)
-    
-    final_output = {} 
+    # Use the refactored function to process and persist JSON data
+    tables, kv_pairs, lines = refactor_and_persist_json_data(
+        table_json_path, kv_json_path, lines_json_path, output_extraction_dir
+    )
 
+    # Extract the base filename (without extension) for directory naming
+    base_filename = os.path.splitext(os.path.basename(table_json_path))[0]
+    output_subdir = os.path.join(output_extraction_dir, base_filename)
+    
+    final_output = {}
     combined_sets = {}
+
     for page in lines.keys():
         page_k_lines = lines.get(page, [])
-        
-        page_tables = tables.get(page, []) # Get the tables for the page = consider this v1 set. Remember the bbox is bbox = [[x1, y1], [x2, y2], [x3, y3], [x4, y4]] 
-        page_kv_pairs = kv_pairs.get(page, [])  # Get the kv pairs for the page = consider this v2 set. Remember the bbox is bbox = [[x1, y1], [x2, y2], [x3, y3], [x4, y4]] 
+        page_tables = tables.get(page, [])
+        page_kv_pairs = kv_pairs.get(page, [])
 
         print(f"Page {page} has {len(page_k_lines)} lines, {len(page_tables)} tables, and {len(page_kv_pairs)} key-value pairs")
-        # print(f"Page {page} has {page_k_lines}")
-       
-        # TODO: Merge the tables and kv pairs into a single list and sort by the y-coordinate and x-coordinate
+        
+        # Merge and sort tables and kv pairs
         combined_data = page_tables + page_kv_pairs
-        combined_data.sort(key=lambda item: (item['bbox'][0][1], item['bbox'][0][0])) # Sort by y-coordinate and x-coordinate = consider this v3 set. 
-        
+        combined_data.sort(key=lambda item: (item['bbox'][0][1], item['bbox'][0][0]))
+        combined_sets[page] = {'combined_data': combined_data.copy()}
 
-        copy_combined_data = combined_data.copy()
-        
-        combined_sets[page] = {
-            'combined_data': copy_combined_data
-        }
-
-
-        
-
-        ### Finding: Edge Case: Key-Value Pairs can also be in the same region as the table! Example is fun-1 and fun-2. ###
-
-        if len(page_tables) == 0 and len(page_kv_pairs) == 0:
+        if not page_tables and not page_kv_pairs:
             print(f"Page {page} has no tables or key-value pairs")
             continue
-        else:
-            content = [] 
-            restricted_regions_bbox = []
-            restricted_regions_text = [] 
-            for data in combined_data:
-                restricted_regions_bbox.append(data['bbox'])
-                restricted_regions_text.append(data['content'])
-            
-            page_k_lines_copy = [line for line in page_k_lines]
-            while len(combined_data) != 0:
-                data = combined_data.pop(0)
-                restricted_region = data['bbox'] # Get the first item in the list and remove it from the list
-                # Find all items that are above (y-axis) the restricted region from the page_k_lines
-                k_line_content = [] 
-                # print(f"Page K Lines: {page_k_lines}")
 
-                while len(page_k_lines_copy) != 0:
-                    line = page_k_lines_copy.pop(0)
-                    bbox1 = line.get('bbox', {})
-                    print(f"Line: {line.get('content', '')} has bbox: {bbox1}")
-                    print(f"Restricted Region: {restricted_region}")
-                    if not bbox1:
-                        raise ValueError("No bounding box found in the line")
-                    if bbox_equivalence(line, restricted_regions_bbox) or check_overlap(bbox1, restricted_region):
-                        print(f"Line: {line.get('content', '')} is in the restricted region")
-                        break
-                    # Check if the line is above the restricted region
-                    if find_lines_above_region(bbox1, restricted_region):
-                        k_line_content.append(line.get('content', ""))
-                    else:
-                        break  # Exit the loop for lines that don't match the conditions
-                # print(f"K Line Content: {page_k_lines_copy}")
+        content = []
+        restricted_regions_bbox = [data['bbox'] for data in combined_data]
 
-                
-                
-                content.append({
-                    "k-lines" : '\n'.join(k_line_content),
-                    "type" : data['type'],
-                    "content" : data['content']
-                })
-               
-              
-                
-            final_output[page] = content 
-    with open(os.path.join(output_extraction_dir, "combined_tables+kv.json"), 'w') as file:
-            json.dump(combined_sets, file, indent=4)
+        page_k_lines_copy = [line for line in page_k_lines]
+        while combined_data:
+            data = combined_data.pop(0)
+            restricted_region = data['bbox']
+            k_line_content = []
 
-    with open(os.path.join(output_extraction_dir, "final_output.json"), 'w') as file:
+            while page_k_lines_copy:
+                line = page_k_lines_copy.pop(0)
+                bbox1 = line.get('bbox', {})
+                if not bbox1:
+                    raise ValueError("No bounding box found in the line")
+                if bbox_equivalence(line, restricted_regions_bbox) or check_overlap(bbox1, restricted_region):
+                    break
+                if find_lines_above_region(bbox1, restricted_region):
+                    k_line_content.append(line.get('content', ""))
+                else:
+                    break
+
+            content.append({
+                "k-lines": '\n'.join(k_line_content),
+                "type": data['type'],
+                "content": data['content']
+            })
+
+        final_output[page] = content
+
+    # Save the outputs into the subdirectory
+    with open(os.path.join(output_subdir, "combined_tables+kv.json"), 'w') as file:
+        json.dump(combined_sets, file, indent=4)
+
+    with open(os.path.join(output_subdir, "final_output.json"), 'w') as file:
         json.dump(final_output, file, indent=4)
+
     return final_output
 
 
 
-
+### Full Pipeline to Process PDFs and Extract Structured Data ###
+############################################################################################################
 
 # Function to extract structured data from a PDF
 def structured_extraction(pdf_file):
@@ -314,6 +304,7 @@ def structured_extraction(pdf_file):
     key_value_pairs = azure_extractor.extract_kv_pairs(pdf_file) # json output
     lines = azure_extractor.extract_lines(pdf_file) # json output
     return tables, key_value_pairs, lines
+    # next code lines would be to call the format_extraction function to format the data and save it to the output directory
 
 # Function to process and save a single PDF
 def process_pdf(pdf_file, input_dir, output_dir):
@@ -327,7 +318,6 @@ def process_pdf(pdf_file, input_dir, output_dir):
     tables, kv_pairs, lines = structured_extraction(pdf_file)
 
 
-
 # Function to process all PDFs in a given directory
 def process_pdf_directory(input_dir, output_dir):
     for root, _, files in os.walk(input_dir):
@@ -337,6 +327,31 @@ def process_pdf_directory(input_dir, output_dir):
                 full_pdf_path = os.path.join(root, file)
                 print(f"PDF File Processing {full_pdf_path}")
                 process_pdf(full_pdf_path, input_dir, output_dir)
+
+############################################################################################################
+
+
+#### Processing Structured Extraction Directories for Subset PDFs ####
+
+
+def process_structured_extraction_directories(table_dir, kv_pair_dir, lines_dir, output_extraction_dir):
+    for root, _, files in os.walk(table_dir):
+        for file in files:
+            if file.endswith('.json'):
+                # Extract relative path to the subdirectory
+                sub_dir = os.path.relpath(root, table_dir)
+
+                # Construct full paths for tables, kv pairs, and lines
+                full_table_path = os.path.join(table_dir, sub_dir, file)
+                full_kv_path = os.path.join(kv_pair_dir, sub_dir, file)
+                full_lines_path = os.path.join(lines_dir, sub_dir, file)
+                print(f"Processing {full_table_path}, {full_kv_path}, {full_lines_path}")
+                
+                # Format extraction and save to output directory
+                format_extraction(full_table_path, full_kv_path, full_lines_path, output_extraction_dir)
+                print(f"Processed {full_table_path}, {full_kv_path}, {full_lines_path}")
+
+
 
 # Main function to process the PDFs in the input directory
 if __name__ == "__main__":
@@ -350,14 +365,14 @@ if __name__ == "__main__":
     # Example JSON Path 
     ############################################################################################################
 
-    table_json_path = "../tst/document_intelligence_tables/1715882152079-fun/1715882152079-fun-1.json"
-    kv_json_path = "../tst/document_intelligence_kv_pairs/1715882152079-fun/1715882152079-fun-1.json"
-    lines_json_path = "../tst/document_intelligence_lines/1715882152079-fun/1715882152079-fun-1.json"
+    document_intelligence_tables_dir = "../tst/document_intelligence_tables"
+    document_intelligence_kv_pairs_dir = "../tst/document_intelligence_kv_pairs"
+    document_intelligence_lines_dir = "../tst/document_intelligence_lines"
     output_extraction_dir = "../tst/pipeline_results"
-    extraction = format_extraction(table_json_path, kv_json_path, lines_json_path, output_extraction_dir)
-    
+    process_structured_extraction_directories(document_intelligence_tables_dir, document_intelligence_kv_pairs_dir, document_intelligence_lines_dir, output_extraction_dir)
+    ############################################################################################################
    
     
 
-
+  
     
