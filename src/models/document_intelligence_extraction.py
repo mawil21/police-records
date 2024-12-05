@@ -94,8 +94,10 @@ class Azure_Document_Intelligence_Extraction:
         if result.tables:
             for table in result.tables:
                 table_data = {
+                    "page_no": table.bounding_regions[0].page_number if table.bounding_regions else "N/A",
                     "rowCount": table.row_count,
                     "columnCount": table.column_count,
+                    "table_bounding_region": self._format_bounding_box(table.bounding_regions),
                     "cells": []
                 }
                 for cell in table.cells:
