@@ -35,7 +35,9 @@ class Azure_Document_Intelligence_Extraction:
             "l": min(x_coords),
             "t": min(y_coords),
             "r": max(x_coords),
-            "b": max(y_coords)
+            "b": max(y_coords),
+            'point.x': x_coords,
+            'point.y': y_coords
         }
 
     def extract_lines(self, result):
@@ -64,7 +66,9 @@ class Azure_Document_Intelligence_Extraction:
                             "l": min(x_coords),
                             "t": min(y_coords),
                             "r": max(x_coords),
-                            "b": max(y_coords)
+                            "b": max(y_coords),
+                            'point.x': [point.x * 72 for point in line.polygon],
+                            'point.y': [point.y * 72 for point in line.polygon]
                         }
                     else:
                         continue  # Skip if no valid polygon
@@ -90,19 +94,30 @@ class Azure_Document_Intelligence_Extraction:
         if result.tables:
             for table in result.tables:
                 table_data = {
-                    "page_no": table.bounding_regions[0].page_number if table.bounding_regions else "N/A",
-                    "bbox": self._format_bounding_box(table.bounding_regions),
+                    "rowCount": table.row_count,
+                    "columnCount": table.column_count,
                     "cells": []
                 }
                 for cell in table.cells:
                     cell_data = {
-                        "bbox": self._format_bounding_box(cell.bounding_regions),
-                        "text": cell.content,
-                        
+                        "kind": cell.kind if hasattr(cell, "kind") else "N/A",
+                        "rowIndex": cell.row_index,
+                        "columnIndex": cell.column_index,
+                        "rowSpan": cell.row_span if hasattr(cell, "row_span") else 1,
+                        "columnSpan": cell.column_span if hasattr(cell, "column_span") else 1,
+                        "content": cell.content,
+                        "boundingRegions": [
+                            {
+                                "pageNumber": region.page_number,
+                                "polygon": region.polygon
+                            } for region in cell.bounding_regions
+                        ] if cell.bounding_regions else [],
+                        "spans": []  # Add spans if necessary or leave as an empty list
                     }
                     table_data["cells"].append(cell_data)
                 tables.append(table_data)
-        return tables
+        return {"tables": tables}
+
 
     def extract_kv_pairs(self, result):
         kv_pairs = []
@@ -124,7 +139,10 @@ class Azure_Document_Intelligence_Extraction:
                         "left": min(x_coords),
                         "top": min(y_coords),
                         "right": max(x_coords),
-                        "bottom": max(y_coords)
+                        "bottom": max(y_coords),
+                        'point.x': x_coords,
+                        'point.y': y_coords
+
                     }
 
                 # Extract value content, bounding box, and page number if available
@@ -139,7 +157,9 @@ class Azure_Document_Intelligence_Extraction:
                         "left": min(x_coords),
                         "top": min(y_coords),
                         "right": max(x_coords),
-                        "bottom": max(y_coords)
+                        "bottom": max(y_coords),
+                        'point.x': x_coords,
+                        'point.y': y_coords
                     }
                     print(
                         f"Value '{value_content}' found within "
@@ -233,15 +253,21 @@ class Azure_Document_Intelligence_Extraction:
 
 
     # Function to process and save a single PDF
-    def process_pdf(self, pdf_file, input_dir, output_dir, azure_client):
+    def process_pdf(self, pdf_file, input_dir, output_pdf_dir_lines, output_pdf_dir_tables, output_pdf_dir_kv_pairs, azure_client):
         # Compute the relative path without creating directories for each PDF
         relative_path = os.path.relpath(pdf_file, input_dir)
         json_file_name = os.path.splitext(relative_path)[0] + '.json'
-        json_output_path = os.path.join(output_dir, json_file_name)
-        # Ensure the output directory exists
-        os.makedirs(os.path.dirname(json_output_path), exist_ok=True)
+        
+        json_output_path_lines = os.path.join(output_pdf_dir_lines, json_file_name)
+        json_output_path_tables = os.path.join(output_pdf_dir_tables, json_file_name)
+        json_output_path_kv_pairs = os.path.join(output_pdf_dir_kv_pairs, json_file_name)
 
-        print(f"Processing {relative_path} and saving JSON to {json_output_path}")
+        # Ensure the output directory exists
+        os.makedirs(os.path.dirname(output_pdf_dir_lines), exist_ok=True)
+        os.makedirs(os.path.dirname(output_pdf_dir_tables), exist_ok=True)
+        os.makedirs(os.path.dirname(output_pdf_dir_kv_pairs), exist_ok=True)
+
+        # print(f"Processing {relative_path} and saving JSON to {json_output_path}")
 
         
         # Analyze PDF layout with Azure Document Intelligence
@@ -250,35 +276,41 @@ class Azure_Document_Intelligence_Extraction:
             result = poller.result()
         
         # Process the PDF with docling and save the JSON output
-        # tables = self.extract_tables(result)
-        # kv_pairs = self.extract_kv_pairs(result)
-
+        tables = self.extract_tables(result)
+        kv_pairs = self.extract_kv_pairs(result)
         non_structured_data = self.extract_lines(result)
 
-        with open(json_output_path, 'w') as file:
+        with open(json_output_path_lines, 'w') as file:
             json.dump(non_structured_data, file, indent=4)
+
+        with open(json_output_path_tables, 'w') as file:
+            json.dump(tables, file, indent=4)
+        
+        with open(json_output_path_kv_pairs, 'w') as file:
+            json.dump(kv_pairs, file, indent=4)
 
 
 
     # Function to process all PDFs in a given directory
-    def process_pdf_directory(self, input_dir, output_dir, azure_client):
+    def process_pdf_directory(self, input_dir, output_pdf_dir_lines, output_pdf_dir_tables, output_pdf_dir_kv_pairs, azure_client):
         for root, _, files in os.walk(input_dir):
             print(f"Processing files in {root}")
             for file in files:
                 if file.endswith('.pdf'):
                     full_pdf_path = os.path.join(root, file)
                     print(f"PDF File Processing {full_pdf_path}")
-                    self.process_pdf(full_pdf_path, input_dir, output_dir, azure_client)
+                    self.process_pdf(full_pdf_path, input_dir, output_pdf_dir_lines, output_pdf_dir_tables, output_pdf_dir_kv_pairs, azure_client)
 
 
 # GOAL is to extract the table and key-value pairs from the PDFs
 if __name__ == "__main__":
     input_pdf_dir = "../../structured_extraction_baselines/azure_document_intelligence/tst/saved_pdfs"  # Directory containing the PDFs to process
-    output_pdf_dir = "../../tst/document_intelligence_lines" # Directory to save the extraction results of PDF documents
-    
+    output_pdf_dir_lines = "../../tst/document_intelligence_lines" # Directory to save the extraction results of PDF documents
+    output_pdf_dir_tables = "../../tst/document_intelligence_tables" # Directory to save the extraction results of PDF documents
+    output_pdf_dir_kv_pairs = "../../tst/document_intelligence_kv_pairs" # Directory to save the extraction results of PDF documents
     # Initialize the Azure client
     azure_endpoint = "" # add your endpoint
     azure_key = "" # add your key
     extractor = Azure_Document_Intelligence_Extraction()
     azure_client = extractor.initialize_azure_client(azure_endpoint, azure_key)
-    extractor.process_pdf_directory(input_pdf_dir, output_pdf_dir, azure_client)
+    extractor.process_pdf_directory(input_pdf_dir, output_pdf_dir_lines, output_pdf_dir_tables, output_pdf_dir_kv_pairs, azure_client)
