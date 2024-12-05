@@ -7,6 +7,11 @@ import cv2
 import numpy as np 
 from models.docling_structured_extraction import Docling_Structured_Extraction
 from models.document_intelligence_extraction import Azure_Document_Intelligence_Extraction
+from models.gpt_4_model import gpt_4
+from models.gpt_4o_model import gpt_4o
+from models.gpt_o1_mini import gpt_o1_mini
+from models.gpt_o1_preview_model import gpt_o1_preview
+
 import json 
 from shapely.geometry import Polygon
 
@@ -87,7 +92,6 @@ def check_overlap(bbox1, bbox2):
 def refactor_tables_json(json_data):
         refactored_data = {}
         for item in json_data:
-            print(item)
             page_no = item.get('page_no')
             if page_no not in refactored_data:
                 refactored_data[page_no] = []
@@ -98,10 +102,37 @@ def refactor_tables_json(json_data):
 
             # Pair every x in point.x with every y in point.y
             coordinates = list(zip(point_x, point_y))
+
+            table_content = item.get('cells', [])
+            # raw text representation of the table. Use `table_content`
+            # Extract table content by rows and columns
+            table_dict = {}
+            for cell in table_content:
+                row = cell.get('rowIndex')
+                col = cell.get('columnIndex')
+                content = cell.get('content', '')
+
+                if row not in table_dict:
+                    table_dict[row] = {}
+                table_dict[row][col] = content
+
+            # Convert the table dictionary to a raw string representation
+            max_col_index = max(max(row.keys()) for row in table_dict.values())
+            table_rows = []
+            for row_index in sorted(table_dict.keys()):
+                row_cells = [table_dict[row_index].get(col_index, '') for col_index in range(max_col_index + 1)]
+                table_rows.append("\t".join(row_cells))
+
+            # Join rows with newline for raw table representation
+            table_representation = "\n".join(table_rows)
+
             refactored_data[page_no].append({
                 'type': 'table',
                 'bbox': coordinates,  # Assign the paired coordinates to bbox
-                'content' : item.get('cells', [])
+                # 'content' : item.get('cells', []),
+                'content' : table_representation,
+                'page_no' : page_no
+             
             })
 
         return refactored_data
@@ -149,7 +180,11 @@ def refactor_key_value_pairs(json_data):
         refactored_data[page_no].append({
             'type' : 'kv_pair',
             'bbox' : [x1y1, x2y2, x3y3, x4y4],
-            'content' : content
+            'content' : content,
+            'key' : key_content,
+            'value' : value_content,
+            'page_no' : page_no
+            
         })
 
     return refactored_data
@@ -208,22 +243,15 @@ def refactor_and_persist_json_data(table_json_path, kv_json_path, lines_json_pat
         lines = refactor_lines_json(json.load(file), tables, kv_pairs)
 
     # Dump the refactored data to the subdirectory
-    with open(os.path.join(output_subdir, "cleaned_table.json"), 'w') as file:
+    with open(os.path.join(output_subdir, "tables.json"), 'w') as file:
         json.dump(tables, file, indent=4)
-    with open(os.path.join(output_subdir, "cleaned_kv_pairs.json"), 'w') as file:
+    with open(os.path.join(output_subdir, "kv_pairs.json"), 'w') as file:
         json.dump(kv_pairs, file, indent=4)
-    with open(os.path.join(output_subdir, "cleaned_lines.json"), 'w') as file:
+    with open(os.path.join(output_subdir, "lines.json"), 'w') as file:
         json.dump(lines, file, indent=4)
 
     return tables, kv_pairs, lines
 
-
-
-
-
-
-# Bug 1: I need to preprocess the data on lines such that we take out tables and key-value pairs. 
-# Bug 2: I need to find a way to format the tables correctly 
 
 
 def format_extraction(table_json_path, kv_json_path, lines_json_path, output_extraction_dir):
@@ -244,7 +272,7 @@ def format_extraction(table_json_path, kv_json_path, lines_json_path, output_ext
         page_tables = tables.get(page, [])
         page_kv_pairs = kv_pairs.get(page, [])
 
-        print(f"Page {page} has {len(page_k_lines)} lines, {len(page_tables)} tables, and {len(page_kv_pairs)} key-value pairs")
+        # print(f"Page {page} has {len(page_k_lines)} lines, {len(page_tables)} tables, and {len(page_kv_pairs)} key-value pairs")
         
         # Merge and sort tables and kv pairs
         combined_data = page_tables + page_kv_pairs
@@ -252,7 +280,7 @@ def format_extraction(table_json_path, kv_json_path, lines_json_path, output_ext
         combined_sets[page] = {'combined_data': combined_data.copy()}
 
         if not page_tables and not page_kv_pairs:
-            print(f"Page {page} has no tables or key-value pairs")
+            # print(f"Page {page} has no tables or key-value pairs")
             continue
 
         content = []
@@ -261,6 +289,7 @@ def format_extraction(table_json_path, kv_json_path, lines_json_path, output_ext
         page_k_lines_copy = [line for line in page_k_lines]
         while combined_data:
             data = combined_data.pop(0)
+            page_no = data['page_no']
             restricted_region = data['bbox']
             k_line_content = []
 
@@ -275,20 +304,32 @@ def format_extraction(table_json_path, kv_json_path, lines_json_path, output_ext
                     k_line_content.append(line.get('content', ""))
                 else:
                     break
+            prompt = f"""
+                Convert the following content into a markdown representation as a {data['type']}:
+        
+                Content: {data['content']}
+                
+                Use appropriate markdown formatting.
+               
 
+            """
+            gpt_response = gpt_4o(prompt)
             content.append({
                 "k-lines": '\n'.join(k_line_content),
                 "type": data['type'],
-                "content": data['content']
+                "content": data['content'],
+                'page_no' : page_no,
+                'gpt_response' : gpt_response
+                # "bbox": data['bbox'],
             })
 
         final_output[page] = content
-
+    
     # Save the outputs into the subdirectory
     with open(os.path.join(output_subdir, "combined_tables+kv.json"), 'w') as file:
         json.dump(combined_sets, file, indent=4)
 
-    with open(os.path.join(output_subdir, "final_output.json"), 'w') as file:
+    with open(os.path.join(output_subdir, "structured_format.json"), 'w') as file:
         json.dump(final_output, file, indent=4)
 
     return final_output
