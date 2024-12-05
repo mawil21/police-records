@@ -15,5 +15,4 @@ def chatGPT_api(message_content):
 
 
 def gpt_o1_preview(prompt):
-    message_content = prompt[0] + prompt[1]
-    return chatGPT_api(message_content)
+    return chatGPT_api(prompt)
