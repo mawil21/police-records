@@ -305,21 +305,22 @@ def format_extraction(table_json_path, kv_json_path, lines_json_path, output_ext
                 else:
                     break
             prompt = f"""
-                Convert the following content into a markdown representation as a {data['type']}:
-        
-                Content: {data['content']}
-                
-                Use appropriate markdown formatting.
-               
+                Convert the following raw text into a json representation as a {data['type']}:
+
+                {data['content']}
+
+                If the data type is a table, then the output should be the a series of key-value pairs, where the keys is the column header and its respective value is the content of the cell.
+                If the data type is a key-value pair, then the output should be a dictionary with the key and value as the key-value pair.
 
             """
+            
             gpt_response = gpt_4o(prompt)
             content.append({
                 "k-lines": '\n'.join(k_line_content),
                 "type": data['type'],
                 "content": data['content'],
                 'page_no' : page_no,
-                'gpt_response' : gpt_response
+                'gpt_response' : json.loads(gpt_response)
                 # "bbox": data['bbox'],
             })
 
@@ -329,7 +330,7 @@ def format_extraction(table_json_path, kv_json_path, lines_json_path, output_ext
     with open(os.path.join(output_subdir, "combined_tables+kv.json"), 'w') as file:
         json.dump(combined_sets, file, indent=4)
 
-    with open(os.path.join(output_subdir, "structured_format.json"), 'w') as file:
+    with open(os.path.join(output_subdir, "structured_format_4o.json"), 'w') as file:
         json.dump(final_output, file, indent=4)
 
     return final_output
