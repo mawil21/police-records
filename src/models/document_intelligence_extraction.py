@@ -4,7 +4,7 @@ from PIL import Image, ImageDraw
 from azure.core.credentials import AzureKeyCredential
 from azure.ai.formrecognizer import DocumentAnalysisClient
 import json 
-
+import time 
 class Azure_Document_Intelligence_Extraction:
     def __init__(self):
         pass
@@ -255,7 +255,7 @@ class Azure_Document_Intelligence_Extraction:
 
 
     # Function to process and save a single PDF
-    def process_pdf(self, pdf_file, input_dir, output_pdf_dir_lines, output_pdf_dir_tables, output_pdf_dir_kv_pairs, azure_client):
+    def process_pdf(self, pdf_file, input_dir, output_pdf_dir_lines, output_pdf_dir_tables, output_pdf_dir_kv_pairs, output_pdf_dir_timings, azure_client):
         # Compute the relative path without creating directories for each PDF
         relative_path = os.path.relpath(pdf_file, input_dir)
         json_file_name = os.path.splitext(relative_path)[0] + '.json'
@@ -263,20 +263,23 @@ class Azure_Document_Intelligence_Extraction:
         json_output_path_lines = os.path.join(output_pdf_dir_lines, json_file_name)
         json_output_path_tables = os.path.join(output_pdf_dir_tables, json_file_name)
         json_output_path_kv_pairs = os.path.join(output_pdf_dir_kv_pairs, json_file_name)
-
+        json_output_path_timings = os.path.join(output_pdf_dir_timings, json_file_name)
         # Ensure the output directory exists
         os.makedirs(os.path.dirname(output_pdf_dir_lines), exist_ok=True)
         os.makedirs(os.path.dirname(output_pdf_dir_tables), exist_ok=True)
         os.makedirs(os.path.dirname(output_pdf_dir_kv_pairs), exist_ok=True)
-
+        os.makedirs(os.path.dirname(output_pdf_dir_timings), exist_ok=True)
         # print(f"Processing {relative_path} and saving JSON to {json_output_path}")
-
         
+        # TODO
+        start_time = time.time()
         # Analyze PDF layout with Azure Document Intelligence
         with open(pdf_file, "rb") as f:
             poller = azure_client.begin_analyze_document("prebuilt-document", document=f)
             result = poller.result()
-        
+        end_time = time.time()
+        elapsed_time = end_time - start_time
+
         # Process the PDF with docling and save the JSON output
         tables = self.extract_tables(result)
         kv_pairs = self.extract_kv_pairs(result)
@@ -290,29 +293,32 @@ class Azure_Document_Intelligence_Extraction:
         
         with open(json_output_path_kv_pairs, 'w') as file:
             json.dump(kv_pairs, file, indent=4)
+        with open(json_output_path_timings, 'w') as file:
+            json.dump({"elapsed_time_seconds": elapsed_time}, file, indent=4)
 
 
 
     # Function to process all PDFs in a given directory
-    def process_pdf_directory(self, input_dir, output_pdf_dir_lines, output_pdf_dir_tables, output_pdf_dir_kv_pairs, azure_client):
+    def process_pdf_directory(self, input_dir, output_pdf_dir_lines, output_pdf_dir_tables, output_pdf_dir_kv_pairs, output_pdf_dir_timings, azure_client):
         for root, _, files in os.walk(input_dir):
             print(f"Processing files in {root}")
             for file in files:
                 if file.endswith('.pdf'):
                     full_pdf_path = os.path.join(root, file)
                     print(f"PDF File Processing {full_pdf_path}")
-                    self.process_pdf(full_pdf_path, input_dir, output_pdf_dir_lines, output_pdf_dir_tables, output_pdf_dir_kv_pairs, azure_client)
+                    self.process_pdf(full_pdf_path, input_dir, output_pdf_dir_lines, output_pdf_dir_tables, output_pdf_dir_kv_pairs, output_pdf_dir_timings, azure_client)
 
 
 # GOAL is to extract the table and key-value pairs from the PDFs
 if __name__ == "__main__":
-    input_pdf_dir = "../../structured_extraction_baselines/azure_document_intelligence/tst/saved_pdfs"  # Directory containing the PDFs to process
+    input_pdf_dir = "sampled_data"  # Directory containing the PDFs to process
     output_pdf_dir_lines = "../../tst/document_intelligence_lines" # Directory to save the extraction results of PDF documents
     output_pdf_dir_tables = "../../tst/document_intelligence_tables" # Directory to save the extraction results of PDF documents
     output_pdf_dir_kv_pairs = "../../tst/document_intelligence_kv_pairs" # Directory to save the extraction results of PDF documents
+    output_pdf_dir_timings = "../../tst/document_intelligence_timings" # Directory to save the extraction results of PDF documents
     # Initialize the Azure client
     azure_endpoint = "" # add your endpoint
     azure_key = "" # add your key
     extractor = Azure_Document_Intelligence_Extraction()
     azure_client = extractor.initialize_azure_client(azure_endpoint, azure_key)
-    extractor.process_pdf_directory(input_pdf_dir, output_pdf_dir_lines, output_pdf_dir_tables, output_pdf_dir_kv_pairs, azure_client)
+    extractor.process_pdf_directory(input_pdf_dir, output_pdf_dir_lines, output_pdf_dir_tables, output_pdf_dir_kv_pairs, output_pdf_dir_timings, azure_client)
