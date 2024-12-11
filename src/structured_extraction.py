@@ -1,19 +1,27 @@
-from docling.document_converter import DocumentConverter
-import os
-import fitz
-from PIL import Image
-import io
-import cv2
-import numpy as np 
+############################################################################################################
+# Importing Required Libraries
+############################################################################################################
+
+import os 
+import sys 
+ 
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.abspath(os.path.join(current_dir, '..'))
+sys.path.insert(0, project_root)
+
+
 from models.docling_structured_extraction import Docling_Structured_Extraction
 from models.document_intelligence_extraction import Azure_Document_Intelligence_Extraction
-from models.gpt_4_model import gpt_4
-from models.gpt_4o_model import gpt_4o
-from models.gpt_o1_mini import gpt_o1_mini
-from models.gpt_o1_preview_model import gpt_o1_preview
+
+from llm_models.gpt_4_model import gpt_4
+from llm_models.gpt_4o_mini_model import gpt_4o_mini
+from llm_models.gpt_4o_model import gpt_4o
+from llm_models.gpt_o1_mini import gpt_o1_mini
+from llm_models.gpt_o1_preview_model import gpt_o1_preview
 
 import json 
 from shapely.geometry import Polygon
+
 
 # Initialize extraction classes
 docling_extractor = Docling_Structured_Extraction()
@@ -313,8 +321,8 @@ def format_extraction(table_json_path, kv_json_path, lines_json_path, output_ext
                 If the data type is a key-value pair, then the output should be a dictionary with the key and value as the key-value pair.
 
             """
-            
-            gpt_response = gpt_4o(prompt)
+
+            gpt_response = gpt_4o_mini(prompt)
             content.append({
                 "k-lines": '\n'.join(k_line_content),
                 "type": data['type'],
@@ -330,7 +338,7 @@ def format_extraction(table_json_path, kv_json_path, lines_json_path, output_ext
     with open(os.path.join(output_subdir, "combined_tables+kv.json"), 'w') as file:
         json.dump(combined_sets, file, indent=4)
 
-    with open(os.path.join(output_subdir, "structured_format_4o.json"), 'w') as file:
+    with open(os.path.join(output_subdir, "structured_format_4o_mini.json"), 'w') as file:
         json.dump(final_output, file, indent=4)
 
     return final_output
