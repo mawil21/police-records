@@ -1,3 +1,4 @@
+import shutil
 import pandas as pd
 from llama_index.core import Document
 import os
@@ -407,33 +408,95 @@ def graph_rag_api(document, question, model):
         "\n",
         )
 
-    return response.response
+    return response.response, index
+
+
+# Add these functions anywhere in your code (preferably near the top with other imports)
+from llama_index.core import StorageContext
+from llama_index.core.indices.loading import load_index_from_storage
+
+def store_index(index: PropertyGraphIndex, directory_path: str):
+    """Persist the full index with custom GraphRAGStore"""
+    # Ensure directory exists
+    os.makedirs(directory_path, exist_ok=True)
+    
+    # Persist using native storage context
+    index.storage_context.persist(persist_dir=directory_path)
+
+def load_index(directory_path: str) -> PropertyGraphIndex:
+    """Load index with proper GraphRAGStore initialization"""
+    # First create our custom graph store instance
+    graph_store = GraphRAGStore()
+    
+    # Load storage context with our custom store
+    storage_context = StorageContext.from_defaults(
+        persist_dir=directory_path,
+        property_graph_store=graph_store  # Force our custom type
+    )
+    
+    # Load the index
+    loaded_index = load_index_from_storage(
+        storage_context,
+        index_type=PropertyGraphIndex
+    )
+    
+    # Rebuild communities if needed (optional)
+    if not loaded_index.property_graph_store.community_summary:
+        loaded_index.property_graph_store.build_communities()
+        
+    return loaded_index
 
 
 # GOAL is to extract the table and key-value pairs from the PDFs
 if __name__ == "__main__":
-    # Path to your .txt file
-    json_file = "/Users/mawilh/Desktop/research_police_records/police-records/tst/pipeline_results/1715882152079-fun-1/structured_format.json"
-    # Load the contents of the .txt file
-    with open(json_file, "r") as f:
-        text_content = f.read()
-    # Create Document instance with the loaded text content
-    document = text_content
-    # Question to ask the model
-
-    
-
-    question = "What does this document talk about?"
+    json_files = [
+        "/Users/mawilh/Desktop/research_police_records/police-records/tst/pipeline_results/1715882152079-fun-1/structured_format.json",
+        "/Users/mawilh/Desktop/research_police_records/police-records/tst/pipeline_results/1715882152079-fun-2/structured_format.json"
+    ]
     model = "gpt-4o"
-    response = graph_rag_api(document, question, model)
-    print(response)
 
-    question = "What is the officer name involved if any?"
-    model = "gpt-4o"
-    response = graph_rag_api(document, question, model)
-    print(response)
+    for json_file in json_files:
+        print(f"--- Processing {json_file} ---")
 
-    question = "Is there a Case No. or IA No. mentioned in the document? If so, what are they?"
-    model = "gpt-4o"
-    response = graph_rag_api(document, question, model)
-    print(response)
+        # Extract the folder name, e.g. "1715882152079-fun-1" or "ABC123-test"
+        pdf_folder_name = os.path.basename(os.path.dirname(json_file))
+
+        # Build an index folder name that includes the folder name
+        index_dir = f"storage_{pdf_folder_name}"
+        if os.path.exists(index_dir):
+            shutil.rmtree(index_dir)
+        os.makedirs(index_dir, exist_ok=True)
+
+        # Read JSON text
+        with open(json_file, "r") as f:
+            text_content = f.read()
+
+        # Build the index & store it
+        answer1, built_index = graph_rag_api(text_content, "What does this document talk about?", model)
+        store_index(built_index, index_dir)
+
+        print(f"Answer to Q1 (for {pdf_folder_name}): {answer1}\nStored index at: {index_dir}\n")
+
+    # ----------------------------------------------------------------------
+    # 2) Reload & Query Each Index
+    # ----------------------------------------------------------------------
+    for json_file in json_files:
+        pdf_folder_name = os.path.basename(os.path.dirname(json_file))
+        index_dir = f"storage_{pdf_folder_name}"
+
+        print(f"--- Loading index {index_dir} for queries ---")
+        loaded_idx = load_index(index_dir)
+
+        query_engine = GraphRAGQueryEngine(
+            graph_store=loaded_idx.property_graph_store,
+            llm=OpenAI(model=model, temperature=0.0),
+        )
+
+        # Example queries:
+        response_officer = query_engine.query("What is the officer name involved, if any?")
+        print("Officer name?", response_officer.response)
+
+        response_case = query_engine.query("Is there a Case No. or IA No. mentioned?")
+        print("Case/IA #?", response_case.response)
+
+        print("")
